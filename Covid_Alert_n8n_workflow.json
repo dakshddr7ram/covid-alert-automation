@@ -1,0 +1,162 @@
+{
+  "name": "Covid-Alert-System",
+  "nodes": [
+    {
+      "parameters": {
+        "fromEmail": "your.email@gmail.com",
+        "toEmail": "manager@health.gov,analyst@team.com",
+        "subject": "=⚠️ CRITICAL COVID-19 ALERT",
+        "html": "={{ $json.text.replace(/```html/g, '').replace(/```/g, '') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1008,
+        0
+      ],
+      "id": "7483fe95-8272-44ff-971a-049b602a09b3",
+      "name": "Send an Email",
+      "webhookId": "aaa4ec2c-4106-4cd3-b905-2e5275241af5"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Get all rows from Postgres\nconst items = $input.all();\n\n// 2. Safety Check\nif (items.length === 0) {\n  return [{ json: { full_report: \"✅ No critical risks detected today.\" } }];\n}\n\n// 3. Build the Report Text\nlet reportText = \"\";\n\nitems.forEach((item, index) => {\n  const s = item.json;\n  \n  // Calculate Cases per Million (Context for the AI)\n  // (Daily Cases / Population) * 1,000,000\n  const casesPerMillion = Math.round((s.daily_new_cases / s.population) * 1000000);\n\n  reportText += `### ${index + 1}. ${s.state} (Pop: ${(s.population / 1000000).toFixed(1)}M)\\n`;\n  reportText += `   - 🦠 New Cases: ${s.daily_new_cases} (${casesPerMillion} per million)\\n`;\n  reportText += `   - 🧪 Positivity: ${s.positive_test_rate}%\\n`;\n  reportText += `   - 💉 Vax Rate: ${s.vaccination_rate}%\\n`;\n  reportText += `   - ⚠️ Flag: ${s.risk_summary}\\n\\n`;\n});\n\n// 4. Return ONE item containing the full list\nreturn [{\n  json: {\n    report_date: items[0].json.date,\n    total_states: items.length,\n    full_report: reportText\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        0
+      ],
+      "id": "497aaf56-6468-4305-a1d2-72201cad5575",
+      "name": "Extract Alterts"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH history AS (\n    SELECT \n        state,\n        date,\n        daily_new_cases,\n        positive_test_rate,\n        population,\n        vaccination_rate,\n        \n        LAG(daily_new_cases, 1) OVER (PARTITION BY state ORDER BY date) as cases_1_day_ago,\n        LAG(daily_new_cases, 2) OVER (PARTITION BY state ORDER BY date) as cases_2_days_ago,\n        LAG(daily_new_cases, 3) OVER (PARTITION BY state ORDER BY date) as cases_3_days_ago,\n        \n        vaccination_rate - LAG(vaccination_rate, 1) OVER (PARTITION BY state ORDER BY date) AS daily_vax_growth_pct\n\n    FROM covid_summary_clean\n    WHERE date >= '2021-07-01' \n),\nrisk_analysis AS (\n    SELECT \n        *,\n        -- RISK A: 3 Consecutive Days of Rising Cases\n        CASE \n            WHEN daily_new_cases > cases_1_day_ago \n             AND cases_1_day_ago > cases_2_days_ago \n             AND cases_2_days_ago > cases_3_days_ago \n            THEN TRUE ELSE FALSE \n        END as risk_consecutive_rise,\n\n        -- RISK B: High Positivity Rate (> 10%)\n        CASE \n            WHEN positive_test_rate > 10 THEN TRUE ELSE FALSE \n        END as risk_high_positivity,\n\n        -- RISK C: Vaccination Stalled & High Volume Cases (> 500)\n        CASE \n            WHEN daily_vax_growth_pct < 0.1 \n             AND daily_new_cases > cases_1_day_ago \n             AND daily_new_cases > 500\n            THEN TRUE ELSE FALSE \n        END as risk_vax_stall\n    FROM history\n)\nSELECT \n    state,\n    date,\n    daily_new_cases,\n    positive_test_rate,       \n    population,              \n    vaccination_rate,        \n    CONCAT_WS(' | ', \n        CASE WHEN risk_consecutive_rise THEN '⚠️ Outbreak Trend: Cases rising for 3 consecutive days' END,\n        CASE WHEN risk_high_positivity THEN '⚠️ High Positivity: Rate > 10%' END,\n        CASE WHEN risk_vax_stall THEN '⚠️ Vulnerability: Vaccination stalled while cases are rising' END\n    ) as risk_summary\nFROM risk_analysis\nWHERE \n    date = '2021-08-11'\n    AND (risk_consecutive_rise OR risk_high_positivity OR risk_vax_stall);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        0
+      ],
+      "id": "ef0ed2ed-d712-4947-94dd-b8f255f9480e",
+      "name": "Flag High Risk States"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        0
+      ],
+      "id": "d9248466-2e3e-43d2-a316-12e95f7c2e53",
+      "name": "Execute"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Chief Data Officer.\n\nINCOMING DATA:\nDate: {{ $json.report_date }}\nFlagged States: {{ $json.total_states }}\n\nRAW DATA:\n--------------------\n{{ $json.full_report }}\n--------------------\n\nTASK:\nGenerate a \"Daily Crisis Situation Report\" in **HTML format**.\nDo NOT use Markdown (no | pipes or ### hashes).\n\nSTRUCTURE:\n\n<h3>📊 DATA SNAPSHOT (All Flagged States)</h3>\n<table border=\"1\" cellpadding=\"8\" cellspacing=\"0\" style=\"border-collapse: collapse; width: 100%;\">\n  <tr style=\"background-color: #f2f2f2;\">\n    <th>State</th>\n    <th>Daily Cases</th>\n    <th>Positivity %</th>\n    <th>Vax Rate %</th>\n    <th>Primary Risk</th>\n  </tr>\n  [Insert HTML Table Rows Here based on the raw data]\n</table>\n\n<br>\n<hr>\n<br>\n\n<h3>🧠 STRATEGIC ASSESSMENT</h3>\n\n<p><strong>1. What is happening?</strong><br>\n[Synthesize the data. Explain the pattern across the states.]</p>\n\n<p><strong>2. Why it is concerning?</strong><br>\n[Explain the risk. Connect high positivity with low vaccination.]</p>\n\n<p><strong>3. What needs attention?</strong></p>\n<ul>\n  <li><strong>Immediate Containment:</strong> [State with highest raw cases].</li>\n  <li><strong>Vaccine Surge:</strong> [State with lowest vax rate].</li>\n  <li><strong>Resource Shift:</strong> [Specific recommendation].</li>\n</ul>",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        656,
+        0
+      ],
+      "id": "0631714b-0a94-4a36-b940-ea5b9457d9cf",
+      "name": "AI Reasoning"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemma-3-27b-it",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        728,
+        224
+      ],
+      "id": "4b935a78-8318-4bf3-a225-d103b4cd6e01",
+      "name": "Gemini"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Flag High Risk States": {
+      "main": [
+        [
+          {
+            "node": "Extract Alterts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute": {
+      "main": [
+        [
+          {
+            "node": "Flag High Risk States",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Reasoning": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Alterts": {
+      "main": [
+        [
+          {
+            "node": "AI Reasoning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Reasoning",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "b7476162-433c-4088-8673-fb6477c8176d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "4c49a268c6d8c5b1ab229858d2578271b44484c9b4fa4f9248919044b05bf495"
+  },
+  "id": "4uxmjzbMdJdouZMsfcshx",
+  "tags": []
+}
