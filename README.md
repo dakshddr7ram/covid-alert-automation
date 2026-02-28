@@ -1,38 +1,52 @@
-🛡️ Automated COVID-19 Crisis Intelligence Pipeline
+# 🛡️ Automated COVID-19 Crisis Intelligence Pipeline
 
-1. Executive Summary
-The Business Problem:
+## 1. Executive Summary
+
+### The Business Problem
 Government health agencies often struggle with "Data Overload"—receiving raw spreadsheets or numbers without actionable context. Critical trends are often missed until it is too late.
-The Solution:
+
+### The Solution
 An automated pipeline that:
-Ingests daily COVID-19 data from a Postgres data warehouse.
-Analyzes trends using SQL Window Functions to detect specific risk patterns (e.g., "Vaccine Stall").
-Synthesizes a strategic intelligence briefing using Google Gemini (GenAI).
-Delivers a formatted HTML report to stakeholders via Email.
-Tech Stack:
-Orchestration: n8n (Workflow Automation)
-Database: PostgreSQL (Data Warehousing)
-Intelligence: Google Gemini 2 (27b) via LangChain
-Delivery: SMTP / HTML Email
+- Ingests daily COVID-19 data from a Postgres data warehouse
+- Analyzes trends using SQL Window Functions to detect specific risk patterns (e.g., "Vaccine Stall")
+- Synthesizes a strategic intelligence briefing using Google Gemini (GenAI)
+- Delivers a formatted HTML report to stakeholders via Email
 
-2. Architecture Overview
-The pipeline moves from Raw Data -> Actionable Intelligence in four distinct stages:
-Risk Detection (SQL Layer): Filters 100+ rows down to critical "At Risk" states using math.
-Aggregation (Code Layer): Transforms individual row data into a consolidated dataset for the AI.
-Reasoning (AI Layer): A Large Language Model (LLM) interpreting the numbers and generating strategic advice.
-Distribution (Notification Layer): Sends a clean, professional HTML report to decision-makers.
+### Tech Stack
+| Component | Technology |
+|-----------|-----------|
+| **Orchestration** | n8n (Workflow Automation) |
+| **Database** | PostgreSQL (Data Warehousing) |
+| **Intelligence** | Google Gemini 2 (27b) via LangChain |
+| **Delivery** | SMTP / HTML Email |
 
+---
 
-3. Workflow Configuration (Step-by-Step) 
-<img width="1487" height="431" alt="n8n_covid_alert" src="https://github.com/user-attachments/assets/a9c5863b-d1cb-4387-a79d-d3cc6dc2451a" />
+## 2. Architecture Overview
 
+The pipeline moves from **Raw Data → Actionable Intelligence** in four distinct stages:
 
-🟢 Node 1: Postgres (The Filter)
-Purpose: Extract only the states that require attention. We do the heavy calculation inside the database.
-Key Logic:
-Calculates daily_vax_growth_pct using LAG() window functions.
-Applies a composite filter: (Low Vax Growth) AND (Rising Cases) AND (Cases > 500).
-SQL Query:
+1. **Risk Detection (SQL Layer)**: Filters 100+ rows down to critical "At Risk" states using mathematical logic
+2. **Aggregation (Code Layer)**: Transforms individual row data into a consolidated dataset for the AI
+3. **Reasoning (AI Layer)**: A Large Language Model (LLM) interpreting the numbers and generating strategic advice
+4. **Distribution (Notification Layer)**: Sends a clean, professional HTML report to decision-makers
+
+---
+
+## 3. Workflow Configuration (Step-by-Step)
+
+![n8n COVID Alert Workflow](https://github.com/user-attachments/assets/a9c5863b-d1cb-4387-a79d-d3cc6dc2451a)
+
+### 🟢 Node 1: PostgreSQL (The Filter)
+
+**Purpose**: Extract only the states that require attention. We do the heavy calculation inside the database.
+
+**Key Logic**:
+- Calculates `daily_vax_growth_pct` using LAG() window functions
+- Applies a composite filter: (Low Vax Growth) AND (Rising Cases) AND (Cases > 500)
+
+**SQL Query**:
+```sql
 WITH history AS (
     SELECT 
         state,
@@ -92,18 +106,21 @@ FROM risk_analysis
 WHERE 
     date = '2021-08-11'
     AND (risk_consecutive_rise OR risk_high_positivity OR risk_vax_stall);
+```
 
+---
 
+### 🟠 Node 2: Code Node (The Aggregator)
 
-🟠 Node 2: Code Node (The Aggregator)
-Purpose: Batch processing. Instead of sending 5 separate emails (which spams the user and hits API limits), we combine all risky states into one context object.
-Language: JavaScript.
-Key Code:
+**Purpose**: Batch processing. Instead of sending 5 separate emails (which spams the user and hits API limits), we combine all risky states into one context object.
 
+**Language**: JavaScript
 
+**Key Code**:
+```javascript
 const items = $input.all();
 if (items.length === 0) {
-  return [{ json: { full_report: " No critical risks detected today." } }];
+  return [{ json: { full_report: "No critical risks detected today." } }];
 }
 let reportText = "";
 items.forEach((item, index) => {
@@ -122,17 +139,43 @@ return [{
     full_report: reportText
   }
 }];
+```
 
+---
 
-🔵 Node 3: AI Reasoning
-Purpose: Turns raw numbers into human-readable strategy.
-Model: gemma-3-27b .
-Prompt Strategy: "Role Prompting" (Acting as Chief Data Officer) + "Chain of Thought" (Analyze -> Conclude).
-Key Instruction: "Generate the report in HTML format directly to ensure perfect rendering."
-🟣 Node 4: Email 
-Purpose: Sends the final report.
-Configuration:
-Subject: ⚠️ CRITICAL COVID-19 ALERT
-Format: HTML.
-Cleanup: Uses {{ $json.text.replace(/```html/g, '').replace(/```/g, '') }} to remove Markdown wrappers that might break the email.
+### 🔵 Node 3: AI Reasoning
 
+**Purpose**: Turns raw numbers into human-readable strategy.
+
+**Model**: Gemma 3 (27b)
+
+**Prompt Strategy**: 
+- "Role Prompting" (Acting as Chief Data Officer)
+- "Chain of Thought" (Analyze → Conclude)
+
+**Key Instruction**: "Generate the report in HTML format directly to ensure perfect rendering."
+
+---
+
+### 🟣 Node 4: Email Delivery
+
+**Purpose**: Sends the final report.
+
+**Configuration**:
+- **Subject**: ⚠️ CRITICAL COVID-19 ALERT
+- **Format**: HTML
+- **Cleanup**: Uses `{{ $json.text.replace(/\`\`\`html/g, '').replace(/\`\`/g, '') }}` to remove Markdown wrappers that might break the email rendering
+
+---
+
+## Getting Started
+
+1. Set up a PostgreSQL database with COVID-19 data
+2. Configure n8n workflow with the provided nodes
+3. Add your email SMTP credentials
+4. Configure Google Gemini API access
+5. Deploy and schedule the workflow
+
+## License
+
+This project is open source and available under the MIT License.
