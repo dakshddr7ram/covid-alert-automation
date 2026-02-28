@@ -17,7 +17,7 @@ An automated pipeline that:
 |-----------|-----------|
 | **Orchestration** | n8n (Workflow Automation) |
 | **Database** | PostgreSQL (Data Warehousing) |
-| **Intelligence** | Google Gemini 2 (27b) via LangChain |
+| **Intelligence** | Google Gemma 3 (27b) |
 | **Delivery** | SMTP / HTML Email |
 
 ---
@@ -26,7 +26,7 @@ An automated pipeline that:
 
 The pipeline moves from **Raw Data → Actionable Intelligence** in four distinct stages:
 
-1. **Risk Detection (SQL Layer)**: Filters 100+ rows down to critical "At Risk" states using mathematical logic
+1. **Risk Detection (SQL Layer)**: Filters rows down to critical "At Risk" states using mathematical logic
 2. **Aggregation (Code Layer)**: Transforms individual row data into a consolidated dataset for the AI
 3. **Reasoning (AI Layer)**: A Large Language Model (LLM) interpreting the numbers and generating strategic advice
 4. **Distribution (Notification Layer)**: Sends a clean, professional HTML report to decision-makers
@@ -43,7 +43,7 @@ The pipeline moves from **Raw Data → Actionable Intelligence** in four distinc
 
 **Key Logic**:
 - Calculates `daily_vax_growth_pct` using LAG() window functions
-- Applies a composite filter: (Low Vax Growth) AND (Rising Cases) AND (Cases > 500)
+- Applies a filter: (Low Vax Growth) AND (Rising Cases) AND (Cases > 500)
 
 **SQL Query**:
 ```sql
